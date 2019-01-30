@@ -123,8 +123,9 @@ def rigid_transform_3D(A, B):
     t = -R.dot(centroid_A.T) + centroid_B.T
     return R, t
 
-def get_transforms(data, metadata, reference_camera):
-    keypoints, serial_numbers = get_all_keypoints(data)
+def get_transforms(readers, metadata, PARAMS):
+    serial_numbers = metadata['serial_numbers']
+    keypoints = get_all_keypoints(readers, metadata, PARAMS)
     all_key_points_realspace = [transform_key_points(keypoints[i], metadata['intrinsics'][serial_numbers[i]]) for i in range(len(keypoints))]
     kp_mats, masks = zip(*[filter_key_points(all_key_points_realspace[i]) for i in range(len(keypoints))])
     
@@ -135,24 +136,27 @@ def get_transforms(data, metadata, reference_camera):
         axs[i].set_title(serial_numbers[i])
     fig.set_size_inches((15,8))
 
-    # top camera is number 4
+    reference_camera = PARAMS['reference_camera']
     transforms = {reference_camera:(np.identity(3),np.zeros(3))}
     for ii,sn in enumerate(serial_numbers):
         if sn != reference_camera:
             transforms[sn] = get_transform(kp_mats, masks, ii,serial_numbers.index(reference_camera))
     return transforms
     
-def get_all_keypoints(data):
+def get_all_keypoints(readers, metadata, PARAMS):
     keypoints = []
-    serial_numbers = [n.decode('UTF-8') for n in list(data['frame_alignment']['serial_numbers'])]
-    for ii,sn in enumerate(serial_numbers):
+    for ii,sn in enumerate(metadata['serial_numbers']):
         print('Detecting keypoints for camera', sn)
         kps = []
-        for i in data['frame_alignment']['frames'][:,ii]:
-            if i % 100 == 0: print('Frame',i,'out of',data['frame_alignment']['frames'].shape[0])
-            kps.append(detect_keypoints(data[sn]['color'][i,:,:,:],data[sn]['depth'][i,:,:]))
+        for i in range(metadata['num_frames']):
+            if i % 100 == 0: print('Frame',i,'out of <',metadata['num_frames'])
+            try: 
+                color_frame, depth_frame = next(readers[sn])
+                kps.append(detect_keypoints(color_frame,depth_frame))
+            except: 
+                break
         keypoints.append(np.array(kps))
-    return keypoints, serial_numbers   
+    return keypoints  
         
 def get_transform(kp_mats, masks, i1,i2):
     points1 = []
