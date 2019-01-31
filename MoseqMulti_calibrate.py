@@ -1,5 +1,7 @@
-import json, os, sys, time, pickle, h5py, cv2, numpy as np, matplotlib.pyplot as plt
+import json, os, sys, time, pickle, h5py, cv2, numpy as np, multiprocessing as mp, matplotlib.pyplot as plt
 import cv2.aruco as aruco
+from functools import partial
+from MoseqMulti_utils import *
 
 def get_checkpoints(img,origin):
     N = 4
@@ -73,6 +75,7 @@ def detect_keypoints(img,depth):
                                 key_points[l] = np.vstack((key_points[l],cc.reshape(32,2)))
                                 d = [depth[int(key_points[l][ii,1]),int(key_points[l][ii,0])] for ii in range(key_points[l].shape[0])]
                                 key_points[l] = np.hstack((key_points[l],np.array(d).reshape((len(d),1))))
+
                 except: pass   
     return key_points
 
@@ -123,9 +126,10 @@ def rigid_transform_3D(A, B):
     t = -R.dot(centroid_A.T) + centroid_B.T
     return R, t
 
-def get_transforms(readers, metadata, PARAMS):
+def get_transforms(PARAMS):
+    metadata = load_metadata(PARAMS)
     serial_numbers = metadata['serial_numbers']
-    keypoints = get_all_keypoints(readers, metadata, PARAMS)
+    keypoints = get_all_keypoints(PARAMS)
     all_key_points_realspace = [transform_key_points(keypoints[i], metadata['intrinsics'][serial_numbers[i]]) for i in range(len(keypoints))]
     kp_mats, masks = zip(*[filter_key_points(all_key_points_realspace[i]) for i in range(len(keypoints))])
     
@@ -142,21 +146,31 @@ def get_transforms(readers, metadata, PARAMS):
         if sn != reference_camera:
             transforms[sn] = get_transform(kp_mats, masks, ii,serial_numbers.index(reference_camera))
     return transforms
-    
-def get_all_keypoints(readers, metadata, PARAMS):
+ 
+
+
+def get_keypoints_one_camera(cam_ix, PARAMS):
     keypoints = []
-    for ii,sn in enumerate(metadata['serial_numbers']):
-        print('Detecting keypoints for camera', sn)
-        kps = []
-        for i in range(metadata['num_frames']):
-            if i % 100 == 0: print('Frame',i,'out of <',metadata['num_frames'])
-            try: 
-                color_frame, depth_frame = next(readers[sn])
-                kps.append(detect_keypoints(color_frame,depth_frame))
-            except: 
-                break
-        keypoints.append(np.array(kps))
-    return keypoints  
+    serial_numbers = load_metadata(PARAMS)['serial_numbers']
+    frames_ix = load_alignment(PARAMS)['aligned_frames'][:,cam_ix]
+    path_prefix = PARAMS['working_directory']+'/data/'+PARAMS['session_name']+'_'+serial_numbers[cam_ix]
+    for i in range(0,len(frames_ix),PARAMS['batch_size']):
+        print('Processing frame',i,'out of',np.max(frames_ix),'for camera',cam_ix)
+        frame_batch = frames_ix[i:i+PARAMS['batch_size']]
+        color = read_color_frames(path_prefix+'_color.mp4', frame_batch)
+        depth = read_depth_frames(path_prefix+'_depth.avi', frame_batch)
+        for ii in range(len(frame_batch)):
+            keypoints.append(detect_keypoints(color[ii,...],depth[ii,...]))
+    return np.array(keypoints)   
+
+def get_all_keypoints(PARAMS):
+    serial_numbers = load_metadata(PARAMS)['serial_numbers']
+    get_keypoints_one_camera_mappable = partial(get_keypoints_one_camera, PARAMS=PARAMS)
+    if PARAMS['multiprocessing']:
+        return mp.Pool().map(get_keypoints_one_camera_mappable, range(len(serial_numbers)))
+    else:
+        return [get_keypoints_one_camera_mappable(ii) for ii in range(len(serial_numbers))]
+
         
 def get_transform(kp_mats, masks, i1,i2):
     points1 = []

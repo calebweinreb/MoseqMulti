@@ -1,29 +1,12 @@
 import json, os, sys, time, pickle, h5py, cv2, numpy as np, subprocess, datetime
 
-def get_video_readers(path_prefix, metadata, PARAMS, synced=True):
-    return {sn:reader(path_prefix, sn, PARAMS, synced) for sn in metadata['serial_numbers']}    
+def load_metadata(PARAMS):
+    fname = PARAMS['working_directory'] + '/data/' + PARAMS['session_name'] + '_metadata.json'
+    return json.load(open(fname))
 
-def reader(path_prefix, sn, PARAMS, synced):
-    if synced:
-        color_reader = cv2.VideoCapture(path_prefix+'_'+sn+'_color_synced.avi')
-        depth_reader = cv2.VideoCapture(path_prefix+'_'+sn+'_depth_synced.avi')
-    else:
-        color_reader = cv2.VideoCapture(path_prefix+'_'+sn+'_color.avi')
-        depth_reader = cv2.VideoCapture(path_prefix+'_'+sn+'_depth.avi')
-
-    while True:
-        ret1, color_frame = color_reader.read()
-        ret2, depth_frame = depth_reader.read()
-        if not (ret1 and ret2):
-            color_reader.release()
-            depth_reader.release()
-            break
-        else:
-            depth_frame = depth_frame[:,:,0].astype('float') + PARAMS['depth_near_clipping']
-            yield color_frame, depth_frame
-
-
-
+def load_alignment(PARAMS):
+    fname = PARAMS['working_directory'] + '/data/' + PARAMS['session_name'] + '_alignment.h5'
+    return h5py.File(fname,'r')
 
 
 # simple command to pipe frames to an ffv1 file (adapted from moseq2-extract)
@@ -215,4 +198,21 @@ def read_color_frames(filename, frames, threads=6, fps=30,
         return None
     video = np.frombuffer(out, dtype='uint8').reshape((len(frames), frame_size[1], frame_size[0], 3))
     return video
+
+
+def get_aligned_frameset(frame_indexes, PARAMS):
+    metadata = load_metadata(PARAMS)
+    alignment = load_alignment(PARAMS)
+    frame_indexes = np.hstack([frame_indexes])
+    color, depth = {},{}
+
+    for ii,sn in enumerate(metadata['serial_numbers']):
+        path_prefix = PARAMS['working_directory']+'/data/'+PARAMS['session_name']+'_'+sn
+        color[sn] = read_color_frames(path_prefix+'_color.mp4', alignment['aligned_frames'][frame_indexes,ii]).squeeze()
+        depth[sn] = read_depth_frames(path_prefix+'_depth.avi', alignment['aligned_frames'][frame_indexes,ii]).squeeze()
+    return color, depth
+
+
+
+
 
