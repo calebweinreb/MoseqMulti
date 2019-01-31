@@ -153,12 +153,11 @@ def get_keypoints_one_camera(cam_ix, PARAMS):
     keypoints = []
     serial_numbers = load_metadata(PARAMS)['serial_numbers']
     frames_ix = load_alignment(PARAMS)['aligned_frames'][:,cam_ix]
-    path_prefix = PARAMS['working_directory']+'/data/'+PARAMS['session_name']+'_'+serial_numbers[cam_ix]
     for i in range(0,len(frames_ix),PARAMS['batch_size']):
         print('Processing frame',i,'out of',np.max(frames_ix),'for camera',cam_ix)
         frame_batch = frames_ix[i:i+PARAMS['batch_size']]
-        color = read_color_frames(path_prefix+'_color.mp4', frame_batch)
-        depth = read_depth_frames(path_prefix+'_depth.avi', frame_batch)
+        color = load_color(frame_batch, serial_numbers[cam_ix], PARAMS)
+        depth = load_depth(frame_batch, serial_numbers[cam_ix], PARAMS)
         for ii in range(len(frame_batch)):
             keypoints.append(detect_keypoints(color[ii,...],depth[ii,...]))
     return np.array(keypoints)   
