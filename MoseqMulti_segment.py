@@ -36,7 +36,6 @@ def segment_one_camera(sn, PARAMS, color_background, depth_background):
             color_mask.append(clean_color_seg(color_seg(Xcolor,color_bg), Xcolor, PARAMS))
             depth_mask.append(np.all([color_mask[-1],depth_seg(Xdepth,depth_bg, PARAMS)],axis=0))
             if i > PARAMS['skip_first_frames']: color_bg, depth_bg = update_background(color_bg, depth_bg, Xcolor, Xdepth, color_mask[-1], PARAMS['background_update_rate'])
-        np.save('chunk_'+repr(i)+'.npy',np.array(depth_mask) )
         
         color_mask_pipe = write_binary_frames(path_prefix+'_color_mask.avi', np.array(color_mask), 
                                               pipe=color_mask_pipe, close_pipe=False)
