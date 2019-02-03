@@ -10,6 +10,8 @@ def load_alignment(PARAMS, session_name=None):
     fname = PARAMS['working_directory'] + '/data/' + session_name + '_alignment.h5'
     return h5py.File(fname,'r')
 
+def load_transforms(PARAMS):
+    return pickle.load(open(PARAMS['working_directory']+'/transforms.p','rb'))
 
 # simple command to pipe frames to an ffv1 file (adapted from moseq2-extract)
 def write_depth_frames(filename, frames, threads=6, fps=30,
@@ -101,57 +103,6 @@ def write_color_frames(filename, frames, threads=6, fps=30, crf=13,
 
     for i in range(frames.shape[0]):
         pipe.stdin.write(frames[i,:,:,:].astype('uint8').tostring())
-
-    if close_pipe:
-        pipe.stdin.close()
-        return None
-    else:
-        return pipe
-
-
-
-# simple command to pipe frames to an ffv1 file (adapted from moseq2-extract)
-def write_binary_frames(filename, frames, threads=6, fps=30, crf=5,
-                 pixel_format='gray', codec='ffv1',close_pipe=True,
-                 pipe=None,  slices=24, slicecrc=1, frame_size=None, get_cmd=False):
-    """
-    Write frames to avi file using the ffv1 lossless encoder
-    """
-
-    # we probably want to include a warning about multiples of 32 for videos
-    # (then we can use pyav and some speedier tools)
-
-    if not frame_size and type(frames) is np.ndarray:
-        frame_size = '{0:d}x{1:d}'.format(frames.shape[2], frames.shape[1])
-
-
-    command = ['ffmpeg',
-               '-y',
-               '-loglevel', 'fatal',
-               '-threads', str(threads),
-               '-framerate', str(fps),
-               '-f', 'rawvideo',
-               '-s', frame_size,
-               '-pix_fmt', pixel_format,
-               '-i', '-',
-               '-an',
-               '-vcodec', codec,
-               '-slices', str(slices),
-               '-slicecrc', str(slicecrc),
-               '-r', str(fps),
-               '-crf',str(crf),
-               filename]
-
-
-    if get_cmd:
-        return command
-
-    if not pipe:
-        pipe = subprocess.Popen(
-            command, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    for i in range(frames.shape[0]):
-        pipe.stdin.write((frames[i,:,:].astype('uint8')*255).tostring())
 
     if close_pipe:
         pipe.stdin.close()
@@ -253,38 +204,12 @@ def read_color_frames(filename, frames, threads=6, fps=30,
     return video
 
 
+def read_binary_frames(filename, frames):
+    return read_depth_frames(filename, frames) > 0
 
-def read_binary_frames(filename, frames, threads=6, fps=30,
-                pixel_format='gray', frame_size=(640,480),
-                slices=24, slicecrc=1, get_cmd=False):
-
-    command = [
-        'ffmpeg',
-        '-loglevel', 'fatal',
-        '-ss', str(datetime.timedelta(seconds=frames[0]/fps)),
-        '-i', filename,
-        '-vframes', str(len(frames)),
-        '-f', 'image2pipe',
-        '-s', '{:d}x{:d}'.format(frame_size[0], frame_size[1]),
-        '-pix_fmt', pixel_format,
-        '-threads', str(threads),
-        '-slices', str(slices),
-        '-slicecrc', str(slicecrc),
-        '-vcodec', 'rawvideo',
-        '-'
-    ]
-
-    if get_cmd:
-        return command
-
-    pipe = subprocess.Popen(command, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-    out, err = pipe.communicate()
-    if(err):
-        print('error', err)
-        return None
-    video = np.frombuffer(out, dtype='uint8').reshape((len(frames), frame_size[1], frame_size[0])) 
-    return video
-
+def write_binary_frames(filename, frames, **kwargs):
+    frames16 = np.array(frames > 0).astype(np.uint16)
+    pipe = write_depth_frames(filename, frames16, **kwargs)
 
 def load_color(frames, sn, PARAMS, session_name=None):
     if session_name is None: session_name = PARAMS['session_name']
@@ -307,7 +232,9 @@ def load_depth_mask(frames, sn, PARAMS, session_name=None):
     fname = PARAMS['working_directory'] + '/data/' + session_name + '_' + sn + '_depth_mask.avi'
     return read_binary_frames(fname, frames)
 
-def get_aligned_frameset(frame_indexes, PARAMS):
+
+
+def get_aligned_frameset(frame_indexes, PARAMS, get_mask=False):
     metadata = load_metadata(PARAMS)
     alignment = load_alignment(PARAMS)
     one_frame = False
@@ -315,16 +242,18 @@ def get_aligned_frameset(frame_indexes, PARAMS):
         one_frame = True
         frame_indexes = [frame_indexes]
     color, depth = {},{}
-
+    
     for ii,sn in enumerate(metadata['serial_numbers']):
-        color[sn] = load_color(alignment['aligned_frames'][frame_indexes,ii], sn, PARAMS)
-        depth[sn] = load_depth(alignment['aligned_frames'][frame_indexes,ii], sn, PARAMS)
+        if get_mask:
+            color[sn] = load_color_mask(alignment['aligned_frames'][frame_indexes,ii], sn, PARAMS)
+            depth[sn] = load_depth_mask(alignment['aligned_frames'][frame_indexes,ii], sn, PARAMS)
+        else:
+            color[sn] = load_color(alignment['aligned_frames'][frame_indexes,ii], sn, PARAMS)
+            depth[sn] = load_depth(alignment['aligned_frames'][frame_indexes,ii], sn, PARAMS)
         if one_frame:
             color[sn] = color[sn].squeeze()
             depth[sn] = depth[sn].squeeze()
     return color, depth
-
-
 
 
 

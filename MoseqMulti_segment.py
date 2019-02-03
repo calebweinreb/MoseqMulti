@@ -4,7 +4,7 @@ from skimage.measure import label
 from skimage.filters import threshold_otsu
 from functools import partial
 
-def segment(PARAMS):
+def segment(PARAMS, color_background, depth_background):
     serial_numbers = load_metadata(PARAMS)['serial_numbers']
     segment_one_camera_mappable = partial(segment_one_camera, PARAMS=PARAMS, 
                                           color_background=color_background, 
@@ -97,7 +97,7 @@ def clean_color_seg(mask, Xcolor, PARAMS):
     ccs = label(out==0)
     for k in np.nonzero(np.bincount(ccs.flatten()) < PARAMS['max_color_component_island_size'])[0]:
         out += (ccs==k)
-    return out > 0
+    return np.array(out > 0,dtype=float)
 
 def update_background(color_bg, depth_bg, Xcolor, Xdepth, color_mask, rate):
     bg_mask = (cv2.GaussianBlur(color_mask,(71,71),0) > .02)
