@@ -209,7 +209,7 @@ def read_binary_frames(filename, frames):
 
 def write_binary_frames(filename, frames, **kwargs):
     frames16 = np.array(frames > 0).astype(np.uint16)
-    pipe = write_depth_frames(filename, frames16, **kwargs)
+    return write_depth_frames(filename, frames16, **kwargs)
 
 def load_color(frames, sn, PARAMS, session_name=None):
     if session_name is None: session_name = PARAMS['session_name']
